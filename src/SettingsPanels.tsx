@@ -100,7 +100,7 @@ export function UserSettings({ isAdmin, user, profile, locations, onProfileSaved
     if (!supabase || !isAdmin) return;
     const form = new FormData(event.currentTarget);
     setSavingId(id);
-    const update = { full_name: String(form.get('full_name')).trim(), phone: String(form.get('phone') || '').trim() || null, role: String(form.get('role')), location_id: String(form.get('location_id') || '') || null, is_active: form.get('is_active') === 'on' };
+    const update = { full_name: String(form.get('full_name')).trim(), phone: String(form.get('phone') || '').trim() || null, role: String(form.get('role') || (id === user.id ? profile?.role : 'facility_officer')), location_id: String(form.get('location_id') || '') || null, is_active: form.get('is_active') === null && id === user.id ? Boolean(profile?.is_active) : form.get('is_active') === 'on' };
     const { error } = await supabase.from('user_profiles').update(update).eq('id', id);
     setSavingId('');
     if (error) onMessage('บันทึกสิทธิ์ผู้ใช้ไม่สำเร็จ กรุณาลองอีกครั้ง');
