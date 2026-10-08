@@ -18,11 +18,23 @@ type MapEquipment = {
   location_id: string | null;
 };
 
+type MapBorrow = {
+  id: string;
+  borrow_code: string;
+  equipment_id: string;
+  borrower_name: string;
+  borrower_address: string;
+  due_date: string;
+  status: string;
+  purpose: string | null;
+};
+
 type Coordinates = { latitude: number; longitude: number };
 
 type Props = {
   locations: MapLocation[];
   equipment: MapEquipment[];
+  borrowTransactions: MapBorrow[];
   isAdmin: boolean;
   initialLocationId?: string;
   onSaveLocation: (locationId: string, coordinates: Coordinates, subdistrict: string) => Promise<boolean>;
@@ -35,7 +47,24 @@ function hasCoordinates(location: MapLocation): location is MapLocation & { lati
   return location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined;
 }
 
-export default function EquipmentMap({ locations, equipment, isAdmin, initialLocationId, onSaveLocation }: Props) {
+const borrowStatusNames: Record<string, string> = {
+  PENDING: 'รออนุมัติ',
+  APPROVED: 'อนุมัติแล้ว',
+  BORROWED: 'กำลังยืม',
+  OVERDUE: 'เกินกำหนดคืน',
+};
+
+function formatDueDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'ไม่ระบุ' : new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' }).format(date);
+}
+
+function borrowStatusLabel(loan: MapBorrow) {
+  if (loan.status === 'BORROWED' && new Date(loan.due_date).getTime() < Date.now()) return 'เกินกำหนดคืน';
+  return borrowStatusNames[loan.status] || loan.status;
+}
+
+export default function EquipmentMap({ locations, equipment, borrowTransactions, isAdmin, initialLocationId, onSaveLocation }: Props) {
   const mapElement = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const markerLayer = useRef<L.LayerGroup | null>(null);
@@ -65,6 +94,15 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
     }
     return counts;
   }, [equipment]);
+  const borrowCounts = useMemo(() => {
+    const equipmentLocations = new Map(equipment.map(item => [item.id, item.location_id]));
+    const counts = new Map<string, number>();
+    for (const loan of borrowTransactions) {
+      const locationId = equipmentLocations.get(loan.equipment_id);
+      if (locationId) counts.set(locationId, (counts.get(locationId) || 0) + 1);
+    }
+    return counts;
+  }, [equipment, borrowTransactions]);
 
   const selectedLocation = locations.find(location => location.id === selectedLocationId);
   const pinnedLocations = locations.filter(hasCoordinates);
@@ -117,6 +155,9 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
       const countLabel = document.createElement('span');
       countLabel.textContent = `อุปกรณ์ ${count.toLocaleString('th-TH')} รายการ`;
       popup.append(title, countLabel);
+      const coordinates = document.createElement('small');
+      coordinates.textContent = `พิกัดสถานที่เก็บ: ${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
+      popup.append(coordinates);
       if (location.subdistrict) {
         const subdistrict = document.createElement('small');
         subdistrict.textContent = `ตำบล${location.subdistrict}`;
@@ -132,6 +173,33 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
         const more = document.createElement('small');
         more.textContent = `และอีก ${count - itemsAtLocation.length} รายการ`;
         popup.append(more);
+      }
+      const locationEquipmentIds = new Set(equipment.filter(item => item.location_id === location.id).map(item => item.id));
+      const loansAtLocation = borrowTransactions.filter(loan => locationEquipmentIds.has(loan.equipment_id));
+      const loanHeading = document.createElement('strong');
+      loanHeading.textContent = `รายการยืมที่เกี่ยวข้อง ${loansAtLocation.length.toLocaleString('th-TH')} รายการ`;
+      popup.append(loanHeading);
+      for (const loan of loansAtLocation.slice(0, 8)) {
+        const item = equipment.find(candidate => candidate.id === loan.equipment_id);
+        const row = document.createElement('small');
+        row.textContent = `${loan.borrow_code} · ${item?.equipment_code || 'อุปกรณ์'}${item?.equipment_name ? ` · ${item.equipment_name}` : ''} · ${borrowStatusLabel(loan)}`;
+        popup.append(row);
+        const borrower = document.createElement('small');
+        borrower.textContent = `ผู้ยืม: ${loan.borrower_name} · กำหนดคืน: ${formatDueDate(loan.due_date)}`;
+        popup.append(borrower);
+        const address = document.createElement('small');
+        address.textContent = `ที่อยู่ผู้ยืม: ${loan.borrower_address}`;
+        popup.append(address);
+        if (loan.purpose) {
+          const purpose = document.createElement('small');
+          purpose.textContent = `วัตถุประสงค์: ${loan.purpose}`;
+          popup.append(purpose);
+        }
+      }
+      if (loansAtLocation.length > 8) {
+        const moreLoans = document.createElement('small');
+        moreLoans.textContent = `และอีก ${loansAtLocation.length - 8} รายการยืม`;
+        popup.append(moreLoans);
       }
       marker.bindPopup(popup);
     }
@@ -150,7 +218,7 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
       hasFittedBounds.current = true;
     }
     requestAnimationFrame(() => instance.invalidateSize());
-  }, [pinnedLocations, equipmentCounts, equipment, pinPreview]);
+  }, [pinnedLocations, equipmentCounts, equipment, borrowTransactions, pinPreview]);
 
   useEffect(() => {
     const instance = map.current;
@@ -198,6 +266,7 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
         <div><strong>{pinnedLocations.length.toLocaleString('th-TH')}</strong><span>สถานที่ที่ปักพิกัดแล้ว</span></div>
         <div><strong>{equipmentOnMap.toLocaleString('th-TH')}</strong><span>อุปกรณ์ที่แสดงบนแผนที่</span></div>
         <div><strong>{(equipmentAtUnpinnedLocation + equipmentWithoutLocation).toLocaleString('th-TH')}</strong><span>อุปกรณ์ที่ยังไม่มีพิกัด</span></div>
+        <div><strong>{borrowTransactions.length.toLocaleString('th-TH')}</strong><span>รายการยืมที่ยังไม่ปิด</span></div>
       </div>
 
       <div className="equipment-map-layout">
@@ -227,6 +296,7 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
             <h4>สถานที่ในทะเบียน</h4>
             {locations.map(location => {
               const count = equipmentCounts.get(location.id) || 0;
+              const loanCount = borrowCounts.get(location.id) || 0;
               const pinned = hasCoordinates(location);
               return <button className="map-location-row" type="button" key={location.id} onClick={() => {
                 setSelectedLocationId(location.id);
@@ -234,7 +304,7 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
                 setPinPreview(null);
                 if (pinned && map.current) map.current.setView([Number(location.latitude), Number(location.longitude)], 16);
               }}>
-                <span><b>{location.location_name}</b><small>{pinned ? `${count.toLocaleString('th-TH')} อุปกรณ์ · ${location.subdistrict ? `ต.${location.subdistrict}` : 'ยังไม่ระบุตำบล'}` : `${count.toLocaleString('th-TH')} อุปกรณ์ · ยังไม่ได้ปักพิกัด`}</small></span>
+                <span><b>{location.location_name}</b><small>{pinned ? `${count.toLocaleString('th-TH')} อุปกรณ์ · ${location.subdistrict ? `ต.${location.subdistrict}` : 'ยังไม่ระบุตำบล'} · ยืม ${loanCount.toLocaleString('th-TH')} รายการ` : `${count.toLocaleString('th-TH')} อุปกรณ์ · ยืม ${loanCount.toLocaleString('th-TH')} รายการ · ยังไม่ได้ปักพิกัด`}</small></span>
                 <span className={pinned ? 'map-status pinned' : 'map-status'}>{pinned ? 'ดู' : 'รอปัก'}</span>
               </button>;
             })}
@@ -245,4 +315,5 @@ export default function EquipmentMap({ locations, equipment, isAdmin, initialLoc
     </section>
   );
 }
+
 
