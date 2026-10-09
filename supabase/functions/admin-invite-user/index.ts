@@ -29,18 +29,19 @@ Deno.serve(async (request: Request) => {
   const { data: callerProfile, error: profileError } = await callerClient.from('user_profiles').select('role,is_active').eq('id', callerResult.user.id).single();
   if (profileError || callerProfile?.role !== 'district_admin' || !callerProfile.is_active) return respond(403, { error: 'เฉพาะ Admin ระดับอำเภอที่เชิญผู้ใช้ได้' });
 
-  let input: { email?: string; full_name?: string; role?: string; location_id?: string | null };
+  let input: { email?: string; password?: string; full_name?: string; role?: string; location_id?: string | null };
   try { input = await request.json(); } catch { return respond(400, { error: 'รูปแบบข้อมูลไม่ถูกต้อง' }); }
   const email = String(input.email || '').trim().toLowerCase();
+  const password = String(input.password || '');
   const fullName = String(input.full_name || '').trim();
   const role = String(input.role || 'facility_officer');
   const locationId = input.location_id ? String(input.location_id) : null;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || fullName.length < 2 || fullName.length > 120) return respond(400, { error: 'กรุณาตรวจสอบอีเมลและชื่อผู้ใช้' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || fullName.length < 2 || fullName.length > 120 || password.length < 8 || password.length > 128) return respond(400, { error: 'กรุณาตรวจสอบอีเมล ชื่อผู้ใช้ และรหัสผ่านอย่างน้อย 8 ตัวอักษร' });
   if (!['district_admin', 'facility_officer', 'executive'].includes(role)) return respond(400, { error: 'ระดับผู้ใช้ไม่ถูกต้อง' });
 
   const adminClient = createClient(projectUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, { data: { full_name: fullName } });
-  if (inviteError || !data.user) return respond(400, { error: inviteError?.message || 'ส่งคำเชิญไม่สำเร็จ' });
+  const { data, error: createError } = await adminClient.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: fullName } });
+  if (createError || !data.user) return respond(400, { error: createError?.message || 'สร้างบัญชีไม่สำเร็จ' });
 
   const { error: updateError } = await adminClient.from('user_profiles').update({ full_name: fullName, role, location_id: locationId, is_active: true }).eq('id', data.user.id);
   if (updateError) {
@@ -48,6 +49,7 @@ Deno.serve(async (request: Request) => {
     await adminClient.auth.admin.deleteUser(data.user.id);
     return respond(500, { error: 'สร้างบัญชีไม่สำเร็จ กรุณาตรวจสอบสถานที่ประจำและลองใหม่' });
   }
-  return respond(200, { invited: true });
+  return respond(200, { created: true });
 });
+
 
