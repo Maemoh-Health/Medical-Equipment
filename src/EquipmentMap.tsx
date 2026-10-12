@@ -27,6 +27,8 @@ type MapBorrow = {
   due_date: string;
   status: string;
   purpose: string | null;
+  borrower_latitude?: number | string | null;
+  borrower_longitude?: number | string | null;
 };
 
 type Coordinates = { latitude: number; longitude: number };
@@ -44,7 +46,15 @@ const defaultCenter: L.LatLngExpression = [18.3981, 99.8252];
 const tileUrl = import.meta.env.VITE_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 function hasCoordinates(location: MapLocation): location is MapLocation & { latitude: number | string; longitude: number | string } {
-  return location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined;
+  const latitude = Number(location.latitude);
+  const longitude = Number(location.longitude);
+  return location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined && Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+}
+
+function hasBorrowerCoordinates(loan: MapBorrow): loan is MapBorrow & { borrower_latitude: number | string; borrower_longitude: number | string } {
+  const latitude = Number(loan.borrower_latitude);
+  const longitude = Number(loan.borrower_longitude);
+  return loan.borrower_latitude !== null && loan.borrower_latitude !== undefined && loan.borrower_longitude !== null && loan.borrower_longitude !== undefined && Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
 }
 
 const borrowStatusNames: Record<string, string> = {
@@ -111,6 +121,7 @@ export default function EquipmentMap({ locations, equipment, borrowTransactions,
   const equipmentAtUnpinnedLocation = locations
     .filter(location => !hasCoordinates(location))
     .reduce((total, location) => total + (equipmentCounts.get(location.id) || 0), 0);
+  const loansWithCoordinates = borrowTransactions.filter(hasBorrowerCoordinates);
 
   useEffect(() => {
     if (!mapElement.current || map.current) return;
@@ -204,6 +215,59 @@ export default function EquipmentMap({ locations, equipment, borrowTransactions,
       marker.bindPopup(popup);
     }
 
+    // Use coordinates saved with the borrow request; group identical points to avoid stacked markers.
+    const borrowerGroups = new Map<string, MapBorrow[]>();
+    for (const loan of loansWithCoordinates) {
+      const key = `${Number(loan.borrower_latitude).toFixed(6)},${Number(loan.borrower_longitude).toFixed(6)}`;
+      const group = borrowerGroups.get(key) || [];
+      group.push(loan);
+      borrowerGroups.set(key, group);
+    }
+    for (const [key, loans] of borrowerGroups) {
+      const [latitude, longitude] = key.split(',').map(Number);
+      const point: L.LatLngExpression = [latitude, longitude];
+      pointBounds.push(point);
+      const marker = L.marker(point, {
+        icon: L.divIcon({
+          className: 'borrower-map-marker',
+          html: `<span>${loans.length > 99 ? '99+' : loans.length}</span>`,
+          iconSize: [38, 38],
+          iconAnchor: [19, 19],
+        }),
+      }).addTo(layer);
+      const popup = document.createElement('div');
+      popup.className = 'equipment-map-popup';
+      const title = document.createElement('strong');
+      title.textContent = loans.length === 1 ? `ตำแหน่งผู้ยืม · ${loans[0].borrower_name}` : `ตำแหน่งผู้ยืม · ${loans.length.toLocaleString('th-TH')} รายการ`;
+      popup.append(title);
+      const coordinates = document.createElement('small');
+      coordinates.textContent = `พิกัดที่บันทึกตอนขอยืม: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      popup.append(coordinates);
+      for (const loan of loans.slice(0, 8)) {
+        const item = equipment.find(candidate => candidate.id === loan.equipment_id);
+        const row = document.createElement('small');
+        row.textContent = `${loan.borrow_code} · ${borrowStatusLabel(loan)} · ${item?.equipment_code || 'อุปกรณ์'}${item?.equipment_name ? ` · ${item.equipment_name}` : ''}`;
+        popup.append(row);
+        const borrower = document.createElement('small');
+        borrower.textContent = `ผู้ยืม: ${loan.borrower_name} · กำหนดคืน: ${formatDueDate(loan.due_date)}`;
+        popup.append(borrower);
+        const address = document.createElement('small');
+        address.textContent = `ที่อยู่ผู้ยืม: ${loan.borrower_address || 'ไม่ระบุ'}`;
+        popup.append(address);
+        if (loan.purpose) {
+          const purpose = document.createElement('small');
+          purpose.textContent = `วัตถุประสงค์: ${loan.purpose}`;
+          popup.append(purpose);
+        }
+      }
+      if (loans.length > 8) {
+        const more = document.createElement('small');
+        more.textContent = `และอีก ${loans.length - 8} รายการ`;
+        popup.append(more);
+      }
+      marker.bindPopup(popup);
+    }
+
     if (pinPreview) {
       const point: L.LatLngExpression = [pinPreview.latitude, pinPreview.longitude];
       pointBounds.push(point);
@@ -218,7 +282,7 @@ export default function EquipmentMap({ locations, equipment, borrowTransactions,
       hasFittedBounds.current = true;
     }
     requestAnimationFrame(() => instance.invalidateSize());
-  }, [pinnedLocations, equipmentCounts, equipment, borrowTransactions, pinPreview]);
+  }, [pinnedLocations, equipmentCounts, equipment, borrowTransactions, loansWithCoordinates, pinPreview]);
 
   useEffect(() => {
     const instance = map.current;
@@ -256,21 +320,21 @@ export default function EquipmentMap({ locations, equipment, borrowTransactions,
     <section className="panel equipment-map-panel">
       <div className="panel-head">
         <div>
-          <h3>แผนที่จุดเก็บอุปกรณ์</h3>
-          <p>แสดงพิกัดสถานที่ที่จัดเก็บอุปกรณ์ ไม่ใช้ตำแหน่งผู้ยืม</p>
+          <h3>แผนที่อุปกรณ์และตำแหน่งผู้ยืม</h3>
+          <p>หมุดสีเขียวคือจุดเก็บอุปกรณ์ ส่วนหมุดสีส้มดึงจากพิกัดที่บันทึกไว้ในคำขอยืมอัตโนมัติ</p>
         </div>
-        <span className="panel-tag">พิกัดจริงของสถานที่</span>
+        <span className="panel-tag">ไม่ต้องปักพิกัดซ้ำ</span>
       </div>
 
       <div className="map-summary">
         <div><strong>{pinnedLocations.length.toLocaleString('th-TH')}</strong><span>สถานที่ที่ปักพิกัดแล้ว</span></div>
         <div><strong>{equipmentOnMap.toLocaleString('th-TH')}</strong><span>อุปกรณ์ที่แสดงบนแผนที่</span></div>
         <div><strong>{(equipmentAtUnpinnedLocation + equipmentWithoutLocation).toLocaleString('th-TH')}</strong><span>อุปกรณ์ที่ยังไม่มีพิกัด</span></div>
-        <div><strong>{borrowTransactions.length.toLocaleString('th-TH')}</strong><span>รายการยืมที่ยังไม่ปิด</span></div>
+        <div><strong>{loansWithCoordinates.length.toLocaleString('th-TH')}</strong><span>รายการยืมที่มีพิกัดผู้ยืม</span></div>
       </div>
 
       <div className="equipment-map-layout">
-        <div className="equipment-map" ref={mapElement} aria-label="แผนที่สถานที่เก็บอุปกรณ์" />
+        <div className="equipment-map" ref={mapElement} aria-label="แผนที่จุดเก็บอุปกรณ์และตำแหน่งผู้ยืม" />
         <aside className="map-pin-panel">
           <h4>ปักพิกัดสถานที่เก็บอุปกรณ์</h4>
           {isAdmin ? <>
