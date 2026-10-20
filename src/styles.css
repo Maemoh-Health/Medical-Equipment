@@ -29,3 +29,7 @@
 @media(max-width:480px){.volunteer-fields,.volunteer-row{grid-template-columns:1fr}}
 
 .password-settings-form{margin-top:18px;padding-top:18px;border-top:1px solid #e8efee}.password-settings-form h4{margin:0 0 4px;color:#365358;font-size:12px}.password-settings-form p{margin:0;color:#89999b;font-size:10px}.password-settings-form>.secondary{justify-self:start}
+
+/* Keep long dialogs fully reachable on desktop and mobile. */
+.modal-backdrop{display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;overscroll-behavior:contain;padding:18px}
+.modal{margin:auto 0;max-height:calc(100vh - 36px);max-height:calc(100dvh - 36px);overflow-y:auto;overscroll-behavior:contain}
