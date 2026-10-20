@@ -111,7 +111,7 @@ export function ServiceAreaPanel({ locations, defaultLocationId, userId, onMessa
   </section>;
 }
 
-export function ServiceAreaInfo({ locationId }: { locationId: string }) {
+export function ServiceAreaInfo({ locationId, volunteerId, onVolunteerChange }: { locationId: string; volunteerId: string; onVolunteerChange: (id: string) => void }) {
   const [area, setArea] = useState('');
   const [volunteers, setVolunteers] = useState<Pick<Volunteer, 'id' | 'full_name' | 'phone' | 'village'>[]>([]);
   useEffect(() => {
@@ -129,7 +129,7 @@ export function ServiceAreaInfo({ locationId }: { locationId: string }) {
     });
     return () => { current = false; };
   }, [locationId]);
-  if (!locationId || (!area && !volunteers.length)) return null;
-  return <div className="service-area-info"><b>ข้อมูลหน่วยบริการ</b>{area && <p><MapPinned size={14}/><span>{area}</span></p>}{volunteers.length > 0 && <div><span>อสม. ในพื้นที่รับผิดชอบ</span>{volunteers.map(volunteer => <p key={volunteer.id}><UserRound size={14}/><span>{volunteer.full_name}{volunteer.village ? ` · ${volunteer.village}` : ''} · <a href={`tel:${volunteer.phone}`}>{volunteer.phone}</a></span></p>)}</div>}</div>;
+  if (!locationId) return null;
+  return <div className="service-area-info"><b>เขตรับผิดชอบและ อสม. ประจำหน่วยบริการ</b>{area ? <p><MapPinned size={14}/><span>{area}</span></p> : <p><MapPinned size={14}/><span>ยังไม่ได้บันทึกเขตรับผิดชอบ</span></p>}<label>อสม. ผู้ดูแลพื้นที่<select name="volunteer" value={volunteerId} onChange={event => onVolunteerChange(event.target.value)}><option value="">{volunteers.length ? 'เลือก อสม. ผู้ดูแล' : 'ยังไม่มีรายชื่อ อสม. ในหน่วยบริการนี้'}</option>{volunteers.map(volunteer => <option key={volunteer.id} value={volunteer.id}>{volunteer.full_name}{volunteer.village ? ` · ${volunteer.village}` : ''} · ${volunteer.phone}</option>)}</select></label>{volunteerId && volunteers.find(volunteer => volunteer.id === volunteerId) && <p><UserRound size={14}/><span>เบอร์ติดต่อ อสม.: <a href={`tel:${volunteers.find(volunteer => volunteer.id === volunteerId)?.phone}`}>{volunteers.find(volunteer => volunteer.id === volunteerId)?.phone}</a></span></p>}{!volunteers.length && <small>เพิ่มรายชื่อจริงในแผงจัดการด้านบนก่อนส่งคำขอ เพื่อเชื่อมผู้ยืมกับ อสม.</small>}</div>;
 }
 
