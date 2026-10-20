@@ -99,9 +99,6 @@ export function UserSettings({ isAdmin, user, profile, locations, onProfileSaved
     event.preventDefault();
     if (!supabase || !isAdmin) return;
     const form = new FormData(event.currentTarget);
-    const role = String(form.get('role') || 'facility_officer');
-    const locationId = String(form.get('location_id') || '');
-    if (role === 'facility_officer' && !locationId) { onMessage('ผู้ใช้งานหน่วยบริการต้องกำหนดสถานที่ประจำก่อนบันทึก'); return; }
     setSavingId(id);
     const update = { full_name: String(form.get('full_name')).trim(), phone: String(form.get('phone') || '').trim() || null, role: String(form.get('role') || (id === user.id ? profile?.role : 'facility_officer')), location_id: String(form.get('location_id') || '') || null, is_active: form.get('is_active') === null && id === user.id ? Boolean(profile?.is_active) : form.get('is_active') === 'on' };
     const { error } = await supabase.from('user_profiles').update(update).eq('id', id);
