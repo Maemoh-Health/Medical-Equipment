@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ImageUp, Save, ShieldCheck, UserCog } from 'lucide-react';
+import { ImageUp, LockKeyhole, Save, ShieldCheck, UserCog } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 
@@ -67,6 +67,7 @@ export function UserSettings({ isAdmin, user, profile, locations, onProfileSaved
   const [loading, setLoading] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [savingId, setSavingId] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone] = useState(profile?.phone || '');
 
@@ -133,7 +134,36 @@ export function UserSettings({ isAdmin, user, profile, locations, onProfileSaved
     }
   }
 
-  return <div className="settings-stack"><section className="panel settings-panel"><div className="panel-head"><div><h3>ข้อมูลบัญชีของฉัน</h3><p>ผู้ใช้งานทุกระดับแก้ไขชื่อและเบอร์ติดต่อของตนเองได้</p></div><UserCog size={20} className="muted"/></div><form className="profile-settings-form" onSubmit={saveOwnProfile}><div className="form-row"><label>ชื่อที่แสดง<input value={fullName} onChange={e=>setFullName(e.target.value)} required maxLength={120}/></label><label>เบอร์ติดต่อ<input value={phone} onChange={e=>setPhone(e.target.value)} maxLength={30} placeholder="ระบุเบอร์ติดต่อ"/></label></div><div className="form-row"><label>อีเมลเข้าสู่ระบบ<input value={user.email || ''} readOnly disabled/></label><label>บทบาท<input value={roleLabels[profile?.role || ''] || profile?.role || ''} readOnly disabled/></label></div><button className="primary" disabled={savingId===user.id}><Save size={15}/>{savingId===user.id?'กำลังบันทึก…':'บันทึกข้อมูลส่วนตัว'}</button></form></section>
+  async function changeOwnPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !user.email) return;
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const currentPassword = String(values.get('current_password') || '');
+    const newPassword = String(values.get('new_password') || '');
+    const confirmPassword = String(values.get('confirm_password') || '');
+    if (newPassword.length < 8) { onMessage('รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร'); return; }
+    if (newPassword !== confirmPassword) { onMessage('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน'); return; }
+    if (newPassword === currentPassword) { onMessage('รหัสผ่านใหม่ต้องต่างจากรหัสผ่านปัจจุบัน'); return; }
+
+    setChangingPassword(true);
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
+    if (signInError) {
+      setChangingPassword(false);
+      onMessage('รหัสผ่านปัจจุบันไม่ถูกต้อง จึงยังเปลี่ยนรหัสผ่านไม่ได้');
+      return;
+    }
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setChangingPassword(false);
+    if (error) {
+      onMessage('เปลี่ยนรหัสผ่านไม่สำเร็จ รหัสผ่านใหม่อาจไม่ตรงตามข้อกำหนดของระบบ');
+      return;
+    }
+    form.reset();
+    onMessage('เปลี่ยนรหัสผ่านแล้ว กรุณาใช้รหัสผ่านใหม่นี้ในการเข้าสู่ระบบครั้งถัดไป');
+  }
+
+  return <div className="settings-stack"><section className="panel settings-panel"><div className="panel-head"><div><h3>ข้อมูลบัญชีของฉัน</h3><p>ผู้ใช้งานทุกระดับแก้ไขชื่อ เบอร์ติดต่อ และรหัสผ่านของตนเองได้</p></div><UserCog size={20} className="muted"/></div><form className="profile-settings-form" onSubmit={saveOwnProfile}><div className="form-row"><label>ชื่อที่แสดง<input value={fullName} onChange={e=>setFullName(e.target.value)} required maxLength={120}/></label><label>เบอร์ติดต่อ<input value={phone} onChange={e=>setPhone(e.target.value)} maxLength={30} placeholder="ระบุเบอร์ติดต่อ"/></label></div><div className="form-row"><label>อีเมลเข้าสู่ระบบ<input value={user.email || ''} readOnly disabled/></label><label>บทบาท<input value={roleLabels[profile?.role || ''] || profile?.role || ''} readOnly disabled/></label></div><button className="primary" disabled={savingId===user.id}><Save size={15}/>{savingId===user.id?'กำลังบันทึก…':'บันทึกข้อมูลส่วนตัว'}</button></form><form className="profile-settings-form password-settings-form" onSubmit={e=>void changeOwnPassword(e)}><div><h4>เปลี่ยนรหัสผ่าน</h4><p>ยืนยันรหัสผ่านปัจจุบันก่อนกำหนดรหัสผ่านใหม่</p></div><div className="form-row"><label>รหัสผ่านปัจจุบัน<input name="current_password" type="password" autoComplete="current-password" required maxLength={128}/></label><label>รหัสผ่านใหม่<input name="new_password" type="password" autoComplete="new-password" required minLength={8} maxLength={128}/></label></div><label>ยืนยันรหัสผ่านใหม่<input name="confirm_password" type="password" autoComplete="new-password" required minLength={8} maxLength={128}/></label><button className="secondary" disabled={changingPassword||!user.email}><LockKeyhole size={15}/>{changingPassword?'กำลังเปลี่ยนรหัสผ่าน…':'เปลี่ยนรหัสผ่าน'}</button></form></section>
     {isAdmin&&<section className="panel table-panel user-management"><div className="panel-head"><div><h3>จัดการผู้ใช้งาน</h3><p>กำหนดบทบาท สถานที่ประจำ และสถานะบัญชี</p></div><span className="panel-tag">Admin</span></div><form className="invite-user-form" onSubmit={e=>void inviteUser(e)}><b>สร้างบัญชีผู้ใช้</b><span>กำหนดอีเมลและรหัสผ่านสำหรับเข้าสู่ระบบ ผู้ใช้เข้าสู่ระบบได้ทันที</span><div className="user-row-fields"><label>ชื่อผู้ใช้<input name="full_name" required minLength={2} maxLength={120} placeholder="ชื่อและนามสกุล"/></label><label>อีเมล<input name="email" type="email" required autoComplete="email" placeholder="name@example.go.th"/></label><label>รหัสผ่านเริ่มต้น<input name="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร"/></label><label>ระดับผู้ใช้<select name="role" defaultValue="facility_officer">{Object.entries(roleLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><label>สถานที่ประจำ<select name="location_id" defaultValue=""><option value="">เลือกสถานที่ประจำ</option>{locations.map(location=><option key={location.id} value={location.id}>{location.location_name}</option>)}</select></label></div><small>ผู้ใช้งานหน่วยบริการต้องมีสถานที่ประจำ จึงจะเห็นอุปกรณ์และส่งคำขอยืมได้</small><div className="user-row-actions"><button className="primary" disabled={inviting}><UserCog size={14}/>{inviting?'กำลังสร้างบัญชี…':'สร้างบัญชีผู้ใช้'}</button></div></form><div className="user-settings-list"><div className="user-list-heading"><b>บัญชีผู้ใช้ในระบบ ({users.length})</b><span>เรียงจากบัญชีที่เพิ่มล่าสุด</span></div>{loading?<div className="table-empty">กำลังโหลดรายชื่อผู้ใช้…</div>:users.length?users.map(row=><form className="user-setting-row" key={row.id} onSubmit={e=>void saveUser(e,row.id)}><div className="user-row-title"><div><b>{row.full_name}</b><span>{row.email || 'ไม่มีอีเมล'}{row.id===user.id?' · บัญชีของคุณ':''}</span><small>เพิ่มบัญชีเมื่อ {row.created_at && !Number.isNaN(Date.parse(row.created_at)) ? new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeZone: 'Asia/Bangkok' }).format(new Date(row.created_at)) : 'ไม่ทราบวันที่'}</small></div><label className="active-toggle"><input name="is_active" type="checkbox" defaultChecked={row.is_active} disabled={row.id===user.id}/> เปิดใช้งาน</label></div><div className="user-row-fields"><label>ชื่อ<input name="full_name" defaultValue={row.full_name} required maxLength={120}/></label><label>เบอร์ติดต่อ<input name="phone" defaultValue={row.phone || ''} maxLength={30}/></label><label>ระดับผู้ใช้<select name="role" defaultValue={row.role} disabled={row.id===user.id}>{Object.entries(roleLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><label>สถานที่ประจำ<select name="location_id" defaultValue={row.location_id || ''}><option value="">ยังไม่กำหนด</option>{locations.map(location=><option key={location.id} value={location.id}>{location.location_name}</option>)}</select></label></div><div className="user-row-actions"><button className="primary" disabled={savingId===row.id}><Save size={14}/>{savingId===row.id?'กำลังบันทึก…':'บันทึกผู้ใช้'}</button></div></form>):<div className="table-empty">ไม่พบผู้ใช้งาน</div>}</div></section>}
   </div>;
 }
