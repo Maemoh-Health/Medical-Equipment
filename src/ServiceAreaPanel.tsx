@@ -117,6 +117,8 @@ export function ServiceAreaInfo({ locationId }: { locationId: string }) {
   useEffect(() => {
     if (!supabase || !locationId) { setArea(''); setVolunteers([]); return; }
     let current = true;
+    setArea('');
+    setVolunteers([]);
     Promise.all([
       supabase.from('service_area_profiles').select('coverage_area').eq('location_id', locationId).maybeSingle(),
       supabase.from('village_health_volunteers').select('id,full_name,phone,village').eq('location_id', locationId).eq('is_active', true).order('full_name')
