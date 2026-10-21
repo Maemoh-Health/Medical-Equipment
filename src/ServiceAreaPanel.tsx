@@ -1,3 +1,7 @@
+import { useEffect, useState } from 'react';
+import { MapPinned, Plus, Save, UserRound, Users } from 'lucide-react';
+import { supabase } from './lib/supabase';
+
 type Location = { id: string; location_name: string };
 type Volunteer = { id: string; full_name: string; phone: string; village: string | null; is_active: boolean };
 type Equipment = { id:string; equipment_code:string; equipment_name:string; status:string; location_id:string|null; category_id:string; serial_number:string|null; categories?:{category_name:string}|null; locations?:{location_name:string}|null };
